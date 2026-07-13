@@ -2,7 +2,8 @@ package com.example.spark
 
 import java.io.{File, PrintWriter}
 import java.net.URLClassLoader
-import java.nio.charset.StandardCharsets
+import java.nio.ByteBuffer
+import java.nio.charset.{CharacterCodingException, Charset, CodingErrorAction, StandardCharsets}
 import java.nio.file.Files
 
 import org.apache.spark.sql.SparkSession
@@ -148,14 +149,29 @@ object SparkScalaRunner {
 
   /** 读取脚本文件，支持本地路径和 HDFS URI。 */
   private def readScriptFile(path: String): String = {
-    if (path.startsWith("hdfs://")) {
-      val conf = new org.apache.hadoop.conf.Configuration()
-      val fs = org.apache.hadoop.fs.FileSystem.get(java.net.URI.create(path), conf)
-      val is = fs.open(new org.apache.hadoop.fs.Path(path))
-      try new String(is.readAllBytes(), StandardCharsets.UTF_8)
-      finally is.close()
-    } else {
-      Files.readString(java.nio.file.Path.of(path))
+    val bytes: Array[Byte] =
+      if (path.startsWith("hdfs://")) {
+        val conf = new org.apache.hadoop.conf.Configuration()
+        val fs = org.apache.hadoop.fs.FileSystem.get(java.net.URI.create(path), conf)
+        val is = fs.open(new org.apache.hadoop.fs.Path(path))
+        try is.readAllBytes() finally is.close()
+      } else {
+        Files.readAllBytes(java.nio.file.Path.of(path))
+      }
+    decodeBytes(bytes)
+  }
+
+  /** 解码文件字节：先按 UTF-8 严格解码，失败则回退 GBK。
+   *  让本地路径与 HDFS 路径行为一致，并兼容 Windows 下 GBK 编码的脚本/SQL 文件。 */
+  private def decodeBytes(bytes: Array[Byte]): String = {
+    try {
+      val decoder = StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+      decoder.decode(ByteBuffer.wrap(bytes)).toString
+    } catch {
+      case _: CharacterCodingException =>
+        new String(bytes, Charset.forName("GBK"))
     }
   }
 

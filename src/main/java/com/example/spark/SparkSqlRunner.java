@@ -9,6 +9,11 @@ import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -77,14 +82,31 @@ public class SparkSqlRunner {
      * HDFS URI: hdfs://mycluster/spark-sql.sql
      */
     private static String readSqlFile(String path) throws IOException {
+        byte[] bytes;
         if (path.startsWith("hdfs://")) {
             Configuration conf = new Configuration();
             FileSystem fs = FileSystem.get(URI.create(path), conf);
             try (var is = fs.open(new Path(path))) {
-                return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                bytes = is.readAllBytes();
             }
         } else {
-            return java.nio.file.Files.readString(java.nio.file.Path.of(path));
+            bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(path));
+        }
+        return decodeBytes(bytes);
+    }
+
+    /**
+     * 解码文件字节：先按 UTF-8 严格解码，失败则回退 GBK。
+     * 让本地路径与 HDFS 路径行为一致，并兼容 Windows 下 GBK 编码的脚本/SQL 文件。
+     */
+    private static String decodeBytes(byte[] bytes) {
+        try {
+            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT);
+            return decoder.decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (CharacterCodingException e) {
+            return new String(bytes, Charset.forName("GBK"));
         }
     }
 
