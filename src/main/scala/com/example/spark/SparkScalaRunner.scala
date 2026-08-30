@@ -2,13 +2,12 @@ package com.example.spark
 
 import java.io.{File, PrintWriter}
 import java.net.URLClassLoader
-import java.nio.ByteBuffer
-import java.nio.charset.{CharacterCodingException, Charset, CodingErrorAction, StandardCharsets}
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
 import org.apache.spark.sql.SparkSession
 import scala.tools.nsc.{Global, Settings}
-import scala.tools.nsc.reporters.ConsoleReporter
+import scala.tools.nsc.reporters.StoreReporter
 
 /**
  * Scala 脚本运行器（动态文件 + 运行时编译方案）。
@@ -44,6 +43,9 @@ object SparkScalaRunner {
   /** 脚本被包装后的全限定类名（package runner，object Script）。 */
   private val ScriptClass = "runner.Script"
 
+  /** 包装代码在脚本内容前加入的行数，用于把编译错误行号映射回脚本原文行号。 */
+  private val WrapLineOffset = 3
+
   def main(args: Array[String]): Unit = {
     if (args.length < 1) {
       System.err.println("用法: spark-submit --class com.example.spark.SparkScalaRunner <jar> <scala脚本路径> [参数...]")
@@ -67,38 +69,9 @@ object SparkScalaRunner {
     }
 
     val outDir = Files.createTempDirectory("spark-script-out-").toFile
-
-    // 1. 读取脚本
-    val source = readScriptFile(scriptPath)
-    println("Scala脚本: " + scriptPath)
-
-    // 2. 包装 + 运行时编译到 outDir（直接构造 Global，显式 delambdafy=inline）
     val srcFile = Files.createTempFile("spark-script-", ".scala").toFile
-    val wrapped = wrapScript(source)
-    val pw = new PrintWriter(srcFile, StandardCharsets.UTF_8.name)
-    try pw.write(wrapped) finally pw.close()
 
-    println("正在编译 Scala 脚本...")
-    val classpath = System.getProperty("java.class.path")
-    val settings = new Settings
-    settings.classpath.value = classpath
-    settings.outputDirs.setSingleOutput(outDir.getAbsolutePath)
-    // 强制匿名类（$anonfun），让脚本里的 UDF 闭包以可加载的 class 形式存在。
-    settings.Ydelambdafy.value = "inline"
-    println("  delambdafy = " + settings.Ydelambdafy.value)
-    val reporter = new ConsoleReporter(settings)
-    val g = new Global(settings, reporter)
-    val run = new g.Run
-    run.compile(List(srcFile.getAbsolutePath))
-    if (reporter.hasErrors) {
-      System.err.println("脚本编译失败，请查看上方编译错误信息。")
-      sys.exit(1)
-    }
-    println("编译成功。")
-    val classes = listClasses(outDir)
-    println("编译产物 (" + classes.length + " 个 class): " + classes.mkString(", "))
-
-    // 3. 创建 SparkSession，开启 REPL class server 指向 outDir。
+    // 1. 先创建 SparkSession，开启 REPL class server 指向 outDir。
     //    SparkContext 检测到 spark.repl.class.outputDir 后会启动 class server 并设置
     //    spark.repl.class.uri，executor 通过该 uri 拉取运行时编译的类（含 UDF 闭包）。
     val spark = SparkSession.builder()
@@ -110,33 +83,72 @@ object SparkScalaRunner {
     println("REPL class outputDir: " + outDir.getAbsolutePath)
     println("REPL class uri: " + replUri)
 
+    // 用 failed 标记代替在 catch 里 sys.exit，保证 finally 中的临时目录清理能执行。
+    var failed = false
+
     try {
-      // 4. 反射调用 runner.Script.main(scriptArgs)（driver 端从 outDir 加载）
-      println("执行脚本...")
-      val loader = new URLClassLoader(Array(outDir.toURI.toURL), getClass.getClassLoader)
-      val scriptClass = loader.loadClass(ScriptClass)
-      val mainMethod = scriptClass.getMethod("main", classOf[Array[String]])
-      mainMethod.invoke(null, scriptArgs.asInstanceOf[AnyRef])
-      println("脚本执行完成！")
+      // 2. 读取脚本。HDFS 读取走 Spark 的 hadoopConfiguration，继承 --conf / Kerberos 等配置。
+      val source = ScriptFileReader.read(scriptPath, spark.sparkContext.hadoopConfiguration)
+      println("Scala脚本: " + scriptPath)
+
+      // 3. 包装 + 运行时编译到 outDir（直接构造 Global，显式 delambdafy=inline）
+      val pw = new PrintWriter(srcFile, StandardCharsets.UTF_8.name)
+      try pw.write(wrapScript(source)) finally pw.close()
+
+      println("正在编译 Scala 脚本...")
+      val classpath = System.getProperty("java.class.path")
+      val settings = new Settings
+      settings.classpath.value = classpath
+      settings.outputDirs.setSingleOutput(outDir.getAbsolutePath)
+      // 强制匿名类（$anonfun），让脚本里的 UDF 闭包以可加载的 class 形式存在。
+      settings.Ydelambdafy.value = "inline"
+      println("  delambdafy = " + settings.Ydelambdafy.value)
+      // StoreReporter 收集诊断后统一打印，以便把行号映射回脚本原文（ConsoleReporter 会立即输出，无法映射）。
+      val reporter = new StoreReporter
+      val g = new Global(settings, reporter)
+      val run = new g.Run
+      run.compile(List(srcFile.getAbsolutePath))
+      if (reporter.hasErrors) {
+        printDiagnostics(reporter)
+        failed = true
+      } else {
+        println("编译成功。")
+        val classes = listClasses(outDir)
+        println("编译产物 (" + classes.length + " 个 class): " + classes.mkString(", "))
+
+        // 4. 反射调用 runner.Script.main(scriptArgs)（driver 端从 outDir 加载）
+        println("执行脚本...")
+        val loader = new URLClassLoader(Array(outDir.toURI.toURL), getClass.getClassLoader)
+        val scriptClass = loader.loadClass(ScriptClass)
+        val mainMethod = scriptClass.getMethod("main", classOf[Array[String]])
+        mainMethod.invoke(null, scriptArgs.asInstanceOf[AnyRef])
+        println("脚本执行完成！")
+      }
     } catch {
       case e: java.lang.reflect.InvocationTargetException =>
         val cause = Option(e.getCause).getOrElse(e)
         System.err.println("脚本执行失败: " + cause.getMessage)
         cause.printStackTrace()
-        sys.exit(1)
+        failed = true
       case e: Throwable =>
         System.err.println("执行失败: " + e.getMessage)
         e.printStackTrace()
-        sys.exit(1)
+        failed = true
     } finally {
       spark.stop()
+      // 临时文件清理：executor 已在执行期间从 REPL class server 拉取完类，driver 停止后可安全删除。
+      srcFile.delete()
+      deleteRecursively(outDir)
     }
+
+    if (failed) sys.exit(1)
   }
 
   /**
    * 将脚本包进 object Script 的 main 方法。
    * Scala 允许在方法体内写 import，因此脚本顶部的 import 无需特殊处理。
    * 用拼接而非插值，避免脚本中的 $ 被误解析。
+   * 注意：包装在脚本内容前加了 WrapLineOffset 行，编译错误行号需据此映射回脚本原文。
    */
   private def wrapScript(source: String): String = {
     "package runner\n" +
@@ -147,32 +159,22 @@ object SparkScalaRunner {
       "}\n"
   }
 
-  /** 读取脚本文件，支持本地路径和 HDFS URI。 */
-  private def readScriptFile(path: String): String = {
-    val bytes: Array[Byte] =
-      if (path.startsWith("hdfs://")) {
-        val conf = new org.apache.hadoop.conf.Configuration()
-        val fs = org.apache.hadoop.fs.FileSystem.get(java.net.URI.create(path), conf)
-        val is = fs.open(new org.apache.hadoop.fs.Path(path))
-        try is.readAllBytes() finally is.close()
-      } else {
-        Files.readAllBytes(java.nio.file.Path.of(path))
-      }
-    decodeBytes(bytes)
+  /** 打印编译诊断，行号映射回脚本原文（包装代码内的错误按原始行号展示）。 */
+  private def printDiagnostics(reporter: StoreReporter): Unit = {
+    System.err.println("脚本编译失败，错误信息如下（行号已映射回脚本原文）：")
+    reporter.infos.foreach { info =>
+      val loc =
+        if (info.pos.isDefined && info.pos.line > WrapLineOffset) "脚本第 " + (info.pos.line - WrapLineOffset) + " 行"
+        else if (info.pos.isDefined) "运行器包装代码第 " + info.pos.line + " 行"
+        else "未知位置"
+      System.err.println("[" + loc + "] " + info.severity + ": " + info.msg)
+    }
   }
 
-  /** 解码文件字节：先按 UTF-8 严格解码，失败则回退 GBK。
-   *  让本地路径与 HDFS 路径行为一致，并兼容 Windows 下 GBK 编码的脚本/SQL 文件。 */
-  private def decodeBytes(bytes: Array[Byte]): String = {
-    try {
-      val decoder = StandardCharsets.UTF_8.newDecoder()
-        .onMalformedInput(CodingErrorAction.REPORT)
-        .onUnmappableCharacter(CodingErrorAction.REPORT)
-      decoder.decode(ByteBuffer.wrap(bytes)).toString
-    } catch {
-      case _: CharacterCodingException =>
-        new String(bytes, Charset.forName("GBK"))
-    }
+  /** 递归删除文件/目录。 */
+  private def deleteRecursively(f: File): Unit = {
+    if (f.isDirectory) Option(f.listFiles).foreach(_.foreach(deleteRecursively))
+    f.delete()
   }
 
   /** 列出目录下所有 .class 文件的相对路径（调试用）。 */

@@ -3,18 +3,8 @@ package com.example.spark;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
-import java.net.URI;
-import java.nio.ByteBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.Charset;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,7 +13,7 @@ import java.util.List;
  * 读取 SQL 文件，按分号拆分语句，依次执行。
  *
  * 用法: spark-submit --class com.example.spark.SparkSqlRunner
- * spark-csv-import-1.0.0.jar <sql文件路径>
+ * spark-task-runner-1.0.0.jar <sql文件路径>
  */
 public class SparkSqlRunner {
     /** 查询结果最多展示的行数。 */
@@ -42,7 +32,8 @@ public class SparkSqlRunner {
                 .getOrCreate();
 
         try {
-            String content = readSqlFile(sqlFilePath);
+            // HDFS 读取走 Spark 的 hadoopConfiguration，继承 --conf / Kerberos 等配置
+            String content = ScriptFileReader.read(sqlFilePath, spark.sparkContext().hadoopConfiguration());
             List<String> statements = splitStatements(content);
 
             System.out.println("SQL文件: " + sqlFilePath);
@@ -77,42 +68,8 @@ public class SparkSqlRunner {
     }
 
     /**
-     * 读取 SQL 文件，支持本地路径和 HDFS URI。
-     * 本地路径: /opt/spark-sql.sql
-     * HDFS URI: hdfs://mycluster/spark-sql.sql
-     */
-    private static String readSqlFile(String path) throws IOException {
-        byte[] bytes;
-        if (path.startsWith("hdfs://")) {
-            Configuration conf = new Configuration();
-            FileSystem fs = FileSystem.get(URI.create(path), conf);
-            try (var is = fs.open(new Path(path))) {
-                bytes = is.readAllBytes();
-            }
-        } else {
-            bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(path));
-        }
-        return decodeBytes(bytes);
-    }
-
-    /**
-     * 解码文件字节：先按 UTF-8 严格解码，失败则回退 GBK。
-     * 让本地路径与 HDFS 路径行为一致，并兼容 Windows 下 GBK 编码的脚本/SQL 文件。
-     */
-    private static String decodeBytes(byte[] bytes) {
-        try {
-            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT);
-            return decoder.decode(ByteBuffer.wrap(bytes)).toString();
-        } catch (CharacterCodingException e) {
-            return new String(bytes, Charset.forName("GBK"));
-        }
-    }
-
-    /**
      * 按分号拆分 SQL 语句，忽略空语句和注释行。
-     * 支持单行注释 (--) 和块注释。
+     * 支持单行注释 (--)、块注释、单引号/双引号字符串以及反引号标识符（其内可含分号）。
      */
     static List<String> splitStatements(String content) {
         List<String> statements = new ArrayList<>();
@@ -121,6 +78,7 @@ public class SparkSqlRunner {
         boolean inBlockComment = false;
         boolean inSingleQuote = false;
         boolean inDoubleQuote = false;
+        boolean inBacktick = false;
 
         for (int i = 0; i < content.length(); i++) {
             char c = content.charAt(i);
@@ -142,7 +100,7 @@ public class SparkSqlRunner {
                 continue;
             }
 
-            if (!inSingleQuote && !inDoubleQuote) {
+            if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
                 if (c == '-' && next == '-') {
                     inLineComment = true;
                     continue;
@@ -154,13 +112,15 @@ public class SparkSqlRunner {
                 }
             }
 
-            if (c == '\'' && !inDoubleQuote) {
+            if (c == '\'' && !inDoubleQuote && !inBacktick) {
                 inSingleQuote = !inSingleQuote;
-            } else if (c == '"' && !inSingleQuote) {
+            } else if (c == '"' && !inSingleQuote && !inBacktick) {
                 inDoubleQuote = !inDoubleQuote;
+            } else if (c == '`' && !inSingleQuote && !inDoubleQuote) {
+                inBacktick = !inBacktick;
             }
 
-            if (c == ';' && !inSingleQuote && !inDoubleQuote) {
+            if (c == ';' && !inSingleQuote && !inDoubleQuote && !inBacktick) {
                 addStatement(statements, current);
                 current.setLength(0);
             } else {
