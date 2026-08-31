@@ -1,4 +1,4 @@
-package com.example.spark
+package io.github.yanjin24.sparktaskrunner
 
 import java.io.{File, PrintWriter}
 import java.net.URLClassLoader
@@ -22,21 +22,6 @@ import scala.tools.nsc.reporters.StoreReporter
  *   导致 ClassCastException: SerializedLambda -> Function1。
  *   REPL class server（spark-shell 用的同一套机制）让 executor 经 spark.repl.class.uri 拉取运行时类，
  *   从而正确反序列化。这也是 spark-shell 里能直接用 UDF 的原因。
- *
- * 脚本应为 spark-shell 风格的顶层语句序列，并自行创建 SparkSession，例如：
- * {{{
- * import org.apache.spark.sql.SparkSession
- * val spark = SparkSession.builder().getOrCreate()
- * spark.udf.register("my_udf", (x: Int) => x + 1)
- * val result = spark.sql("""SELECT my_udf(col) FROM t""")
- * result.coalesce(1).write.mode("overwrite").csv("hdfs://mycluster/out")
- * }}}
- *
- * 用法:
- *   spark-submit --class com.example.spark.SparkScalaRunner <jar> <scala脚本路径> [参数...]
- *
- * 依赖: 集群的 spark-jars 中需包含 scala-compiler（与 Spark 自带 scala-library 版本一致），
- *       启动时会检测，缺失会给出明确提示。
  */
 object SparkScalaRunner {
 
@@ -48,7 +33,7 @@ object SparkScalaRunner {
 
   def main(args: Array[String]): Unit = {
     if (args.length < 1) {
-      System.err.println("用法: spark-submit --class com.example.spark.SparkScalaRunner <jar> <scala脚本路径> [参数...]")
+      System.err.println("用法: spark-submit --class io.github.yanjin24.sparktaskrunner.SparkScalaRunner <jar> <scala脚本路径> [参数...]")
       sys.exit(1)
     }
     val scriptPath = args(0)

@@ -5,7 +5,7 @@
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.example</groupId>
+    <groupId>io.github.yanjin24</groupId>
     <artifactId>spark-task-runner</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
@@ -96,7 +96,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.example.spark.SparkSqlRunner</mainClass>
+                            <mainClass>io.github.yanjin24.sparktaskrunner.SparkSqlRunner</mainClass>
                         </manifest>
                     </archive>
                 </configuration>

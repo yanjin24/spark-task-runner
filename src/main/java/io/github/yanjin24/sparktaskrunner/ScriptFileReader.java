@@ -1,4 +1,4 @@
-package com.example.spark;
+package io.github.yanjin24.sparktaskrunner;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -22,8 +22,6 @@ final class ScriptFileReader {
 
     /**
      * 读取文件内容为字符串，支持本地路径和 HDFS URI。
-     * 本地路径: /opt/spark-sql.sql
-     * HDFS URI: hdfs://mycluster/spark-sql.sql
      * HDFS 读取使用传入的 Hadoop Configuration（通常传 spark.sparkContext().hadoopConfiguration()），
      * 以继承 Spark 侧的 --conf、Kerberos 等配置，而不是用裸 new Configuration()。
      */

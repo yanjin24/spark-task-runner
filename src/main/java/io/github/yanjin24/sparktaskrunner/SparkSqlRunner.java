@@ -1,4 +1,4 @@
-package com.example.spark;
+package io.github.yanjin24.sparktaskrunner;
 
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -8,20 +8,13 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * 通用 Spark SQL 执行器。
- * 读取 SQL 文件，按分号拆分语句，依次执行。
- *
- * 用法: spark-submit --class com.example.spark.SparkSqlRunner
- * spark-task-runner-1.0.0.jar <sql文件路径>
- */
 public class SparkSqlRunner {
-    /** 查询结果最多展示的行数。 */
+
     private static final int SHOW_ROWS = 500;
 
     public static void main(String[] args) {
         if (args.length < 1) {
-            System.err.println("用法: spark-submit --class com.example.spark.SparkSqlRunner <jar> <sql文件路径>");
+            System.err.println("用法: spark-submit --class io.github.yanjin24.sparktaskrunner.SparkSqlRunner <jar> <sql文件路径>");
             System.exit(1);
         }
 
@@ -32,7 +25,6 @@ public class SparkSqlRunner {
                 .getOrCreate();
 
         try {
-            // HDFS 读取走 Spark 的 hadoopConfiguration，继承 --conf / Kerberos 等配置
             String content = ScriptFileReader.read(sqlFilePath, spark.sparkContext().hadoopConfiguration());
             List<String> statements = splitStatements(content);
 
@@ -43,7 +35,6 @@ public class SparkSqlRunner {
                 String sql = statements.get(i);
                 System.out.println("--- 执行第 " + (i + 1) + " 条语句 ---");
                 if (isQuery(sql)) {
-                    // 查询语句：捕获结果集并展示
                     Dataset<Row> result = spark.sql(sql);
                     System.out.println("查询结果：");
                     result.show(SHOW_ROWS, false);
@@ -67,10 +58,7 @@ public class SparkSqlRunner {
         }
     }
 
-    /**
-     * 按分号拆分 SQL 语句，忽略空语句和注释行。
-     * 支持单行注释 (--)、块注释、单引号/双引号字符串以及反引号标识符（其内可含分号）。
-     */
+    /** 按分号拆分 SQL 语句，支持单行/块注释、单引号/双引号字符串与反引号标识符（其内可含分号）。 */
     static List<String> splitStatements(String content) {
         List<String> statements = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -140,10 +128,7 @@ public class SparkSqlRunner {
         }
     }
 
-    /**
-     * 判断语句是否为查询语句（SELECT / WITH 开头）。
-     * 查询语句会捕获结果集并展示；其他语句（INSERT、CREATE 等）只执行不展示。
-     */
+    /** 是否为查询语句（SELECT / WITH 开头）。 */
     private static boolean isQuery(String sql) {
         String upper = sql.trim().toUpperCase();
         return startsWithKeyword(upper, "SELECT") || startsWithKeyword(upper, "WITH");

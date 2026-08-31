@@ -2,8 +2,8 @@
 
 通用 Spark 任务执行器，支持 SQL 和 Scala 两种任务，通过 `--class` 选择入口：
 
-- `com.example.spark.SparkSqlRunner`：执行 SQL 文件，按分号拆分语句依次执行；末条语句为 SELECT 时打印查询结果。
-- `com.example.spark.SparkScalaRunner`：运行时编译执行 Scala 脚本，支持 UDF、自定义 HDFS 写入等 SQL 无法完成的逻辑。
+- `io.github.yanjin24.sparktaskrunner.SparkSqlRunner`：执行 SQL 文件，按分号拆分语句依次执行；SELECT/WITH 查询语句会打印查询结果。
+- `io.github.yanjin24.sparktaskrunner.SparkScalaRunner`：运行时编译执行 Scala 脚本，支持 UDF、自定义 HDFS 写入等 SQL 无法完成的逻辑。
 
 ## 编译
 
@@ -38,6 +38,8 @@ SELECT * FROM my_view;
 文件路径支持本地路径和 HDFS 路径。脚本被包进 `object Script { def main(args: Array[String]): Unit = { ... } }` 中在 driver 端运行时编译执行。脚本内通过 `SparkSession.builder().getOrCreate()` 获取 SparkSession，例如：
 
 ```scala
+import org.apache.spark.sql.SparkSession
+
 val spark = SparkSession.builder().getOrCreate()
 spark.udf.register("my_udf", (x: Int) => x + 1)
 val result = spark.sql("""SELECT my_udf(col) FROM t""")
@@ -65,7 +67,7 @@ client 模式下 driver 运行在提交节点，使用本地 `$SPARK_HOME/jars/*
 spark-4.1.2-bin-without-hadoop/bin/spark-submit \
   --master yarn \
   --deploy-mode cluster \
-  --class com.example.spark.SparkSqlRunner \
+  --class io.github.yanjin24.sparktaskrunner.SparkSqlRunner \
   /opt/spark-task-runner-1.0.0.jar \
   hdfs://mycluster/myfiles/select.sql
 
@@ -74,7 +76,7 @@ spark-4.1.2-bin-without-hadoop/bin/spark-submit \
   --master yarn \
   --deploy-mode client \
   --driver-class-path "/opt/local-spark-jars/spark-driver-extra/*" \
-  --class com.example.spark.SparkSqlRunner \
+  --class io.github.yanjin24.sparktaskrunner.SparkSqlRunner \
   --files /opt/select.sql \
   /opt/spark-task-runner-1.0.0.jar \
   select.sql
@@ -83,7 +85,7 @@ spark-4.1.2-bin-without-hadoop/bin/spark-submit \
 spark-4.1.2-bin-without-hadoop/bin/spark-submit \
   --master yarn \
   --deploy-mode cluster \
-  --class com.example.spark.SparkScalaRunner \
+  --class io.github.yanjin24.sparktaskrunner.SparkScalaRunner \
   --files /opt/spark-scala.scala \
   /opt/spark-task-runner-1.0.0.jar \
   spark-scala.scala
@@ -93,13 +95,13 @@ spark-4.1.2-bin-without-hadoop/bin/spark-submit \
   --master yarn \
   --deploy-mode client \
   --driver-class-path "/opt/local-spark-jars/spark-driver-extra/*" \
-  --class com.example.spark.SparkScalaRunner \
+  --class io.github.yanjin24.sparktaskrunner.SparkScalaRunner \
   /opt/spark-task-runner-1.0.0.jar \
   hdfs://mycluster/myfiles/spark-scala.scala
 ```
 
 ## 文件说明
 
-- `src/main/java/com/example/spark/SparkSqlRunner.java`：SQL 任务主程序
-- `src/main/scala/com/example/spark/SparkScalaRunner.scala`：Scala 任务主程序（运行时编译）
+- `src/main/java/io/github/yanjin24/sparktaskrunner/SparkSqlRunner.java`：SQL 任务主程序
+- `src/main/scala/io/github/yanjin24/sparktaskrunner/SparkScalaRunner.scala`：Scala 任务主程序（运行时编译）
 - `pom.xml`：Maven 配置
