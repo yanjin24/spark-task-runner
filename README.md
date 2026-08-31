@@ -18,7 +18,20 @@ mvn clean package -DskipTests
 
 ### SQL 任务
 
-文件路径支持本地路径和 HDFS 路径。每条语句以分号 `;` 结尾，支持单行注释 `--` 和块注释 `/* */`。
+文件路径支持本地路径和 HDFS 路径。每条语句以分号 `;` 结尾，支持单行注释 `--` 和块注释 `/* */`，例如：
+
+```sql
+-- 创建临时视图
+create or replace temporary view my_view (...) using csv options (
+  path '/myfiles/data.csv',
+  delimiter ',',
+  header 'true'
+);
+
+-- 插入数据
+INSERT OVERWRITE TABLE test1.my_table
+SELECT * FROM my_view;
+```
 
 ### Scala 任务
 
@@ -35,14 +48,13 @@ result.coalesce(1).write.mode("overwrite").csv("hdfs://mycluster/out")
 
 client 模式下 driver 运行在提交节点，使用本地 `$SPARK_HOME/jars/*`（without-hadoop 版，233 个 jar）。该目录缺少 `spark-hive` 与 Hive 2.3 client jar——它们只存在于 HDFS 的 `spark-jars`，而 `spark.yarn.jars` 只把 jar 提供给 YARN 容器（AM/executor），不提供给 client 模式的 driver。因此在 client 模式下 `spark.sql()` 会报 `ClassNotFoundException: org.apache.spark.sql.hive.HiveSessionStateBuilder`。
 
-解决方法：给 driver 补上这 21 个 delta jar，两种写法等价：
+解决方法：给 driver 补上这 21 个 delta jar（完整清单与两个用途见 [spark-jars.md](spark-jars.md)），两种写法等价：
 
 - 每次提交时加 `--driver-class-path "/opt/local-spark-jars/spark-driver-extra/*"`；或
 - 写进 `spark-defaults.conf` 一劳永逸：`spark.driver.extraClassPath /opt/local-spark-jars/spark-driver-extra/*`
 
-- 命令行写法要用双引号包住 `*`，防止 shell 展开通配符，交给 JVM 按通配符加载该目录下的 jar。
-- `spark-driver-extra/` 下是 21 个指向 hadoop3 bundle 的相对软链接，只补 `spark-hive` + Hive 2.3 client 等 delta jar；故意不含 Hadoop jar，以免与集群自带的 Hadoop 3.4.2 冲突。
 - 写进 `spark-defaults.conf` 是安全的：cluster 模式下 AM 的 jar 来自 HDFS 的 `spark-jars`（`__spark_libs__`），不依赖这个本地目录；AM 即便落到 crown2/3、该目录缺失，JVM 也会静默跳过（通配符展开为空，不报错，已实测）。唯一限制：client 模式须在 crown1 提交——driver 在提交节点运行，需要该目录存在。
+- 命令行写法要用双引号包住 `*`，防止 shell 展开通配符，交给 JVM 按通配符加载该目录下的 jar。
 
 ## 示例
 
@@ -84,21 +96,6 @@ spark-4.1.2-bin-without-hadoop/bin/spark-submit \
   --class com.example.spark.SparkScalaRunner \
   /opt/spark-task-runner-1.0.0.jar \
   hdfs://mycluster/myfiles/spark-scala.scala
-```
-
-## SQL 文件格式
-
-```sql
--- 创建临时视图
-create or replace temporary view my_view (...) using csv options (
-  path '/myfiles/data.csv',
-  delimiter ',',
-  header 'true'
-);
-
--- 插入数据
-INSERT OVERWRITE TABLE test1.my_table
-SELECT * FROM my_view;
 ```
 
 ## 文件说明
