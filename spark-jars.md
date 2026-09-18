@@ -6,10 +6,10 @@
 
 ## 两个用途
 
-1. **HDFS `spark.yarn.jars`**：与 `$SPARK_HOME/jars/*` 一起上传到 `hdfs://mycluster/spark-jars/`，供 YARN 容器（cluster 模式的 AM/driver 与所有 executor）加载：
+1. **HDFS `spark.yarn.jars`**：与 `$SPARK_HOME/jars/*` 一起上传到 `hdfs://mycluster/spark/spark-jars/`，供 YARN 容器（cluster 模式的 AM/driver 与所有 executor）加载：
 
    ```shell
-   hdfs dfs -put /opt/spark-4.1.2/jars/* /opt/local-spark-jars/spark-driver-extra/* /spark-jars/
+   hdfs dfs -put /opt/spark-4.1.2/jars/* /opt/local-spark-jars/spark-driver-extra/* /spark/spark-jars/
    ```
 
 2. **client 模式 driver**：这批 jar 放在提交节点的本地目录（如 `/opt/local-spark-jars/spark-driver-extra/`），client 模式下 driver 看不到 HDFS 的 `spark-jars`，需通过 `--driver-class-path "/opt/local-spark-jars/spark-driver-extra/*"` 或写进 `spark-defaults.conf` 的 `spark.driver.extraClassPath` 提供。

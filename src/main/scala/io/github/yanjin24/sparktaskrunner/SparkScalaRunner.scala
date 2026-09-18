@@ -5,24 +5,22 @@ import java.net.URLClassLoader
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
+import org.apache.hadoop.conf.Configuration
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
 import scala.tools.nsc.{Global, Settings}
 import scala.tools.nsc.reporters.StoreReporter
 
-/**
- * Scala 脚本运行器（动态文件 + 运行时编译方案）。
- *
- * 读取 .scala 脚本（本地路径或 HDFS URI），在 driver 端用 scala-compiler 运行时编译为 class，
- * 通过 Spark 的 REPL class server（spark.repl.class.outputDir）把类分发给 executor，再反射调用脚本主入口执行。
- *
- * 为何用 REPL class server 而非 sc.addJar：
- *   spark.udf.register 注册的 UDF 会被 Spark 包成 ScalaUDF.f（一个行解码 Function1），
- *   该包装是 invokedynamic lambda，序列化为 SerializedLambda 后在 executor 反序列化时
- *   需要能加载到 capturing class。sc.addJar 的 jar 在 executor 子 classloader、反序列化路径取不到，
- *   导致 ClassCastException: SerializedLambda -> Function1。
- *   REPL class server（spark-shell 用的同一套机制）让 executor 经 spark.repl.class.uri 拉取运行时类，
- *   从而正确反序列化。这也是 spark-shell 里能直接用 UDF 的原因。
- */
+/** Scala 脚本运行器（动态文件 + 运行时编译方案）。
+  *
+  * 读取 .scala 脚本（本地路径或 HDFS URI），在 driver 端用 scala-compiler 运行时编译为 class， 通过 Spark 的 REPL class server（spark.repl.class.outputDir）把类分发给
+  * executor，再反射调用脚本主入口执行。
+  *
+  * 为何用 REPL class server 而非 sc.addJar： spark.udf.register 注册的 UDF 会被 Spark 包成 ScalaUDF.f（一个行解码 Function1）， 该包装是 invokedynamic lambda，序列化为
+  * SerializedLambda 后在 executor 反序列化时 需要能加载到 capturing class。sc.addJar 的 jar 在 executor 子 classloader、反序列化路径取不到， 导致 ClassCastException:
+  * SerializedLambda -> Function1。 REPL class server（spark-shell 用的同一套机制）让 executor 经 spark.repl.class.uri 拉取运行时类， 从而正确反序列化。这也是 spark-shell 里能直接用 UDF
+  * 的原因。
+  */
 object SparkScalaRunner {
 
   /** 脚本被包装后的全限定类名（package runner，object Script）。 */
@@ -53,32 +51,59 @@ object SparkScalaRunner {
         sys.exit(1)
     }
 
+    // 1. 尽量在创建 SparkSession 之前读取脚本：appName 等提交级信息在建会话时就已定死，
+    //    必须先拿到脚本内容，才有机会用脚本里的 .appName("...") 命名本次提交。
+    //    HDFS 路径先用裸 Hadoop 配置尝试（driver classpath 自带集群的 core-site 等），
+    //    失败（如需继承 Spark 侧 Kerberos/--conf）则回退为会话后再读，脚本 appName 不再生效。
+    var source: String = null
+    var readAfterSession = false
+    try {
+      source = ScriptFileReader.read(scriptPath, new Configuration)
+    } catch {
+      case e: Throwable =>
+        if (scriptPath.startsWith("hdfs://")) {
+          readAfterSession = true
+          println("HDFS 提前读取失败（" + e + "），回退为创建会话后用 Spark 侧 Hadoop 配置读取")
+        } else {
+          System.err.println("读取脚本失败: " + e)
+          sys.exit(1)
+        }
+    }
+
     val outDir = Files.createTempDirectory("spark-script-out-").toFile
     val srcFile = Files.createTempFile("spark-script-", ".scala").toFile
 
-    // 1. 先创建 SparkSession，开启 REPL class server 指向 outDir。
+    // 2. 创建 SparkSession，开启 REPL class server 指向 outDir。
     //    SparkContext 检测到 spark.repl.class.outputDir 后会启动 class server 并设置
     //    spark.repl.class.uri，executor 通过该 uri 拉取运行时编译的类（含 UDF 闭包）。
-    val spark = SparkSession.builder()
-      .appName("Spark Scala Runner")
-      .config("spark.repl.class.outputDir", outDir.getAbsolutePath)
-      .getOrCreate()
+    //    appName：--name / --conf spark.app.name > 脚本 .appName("...") > 主类名默认。
+    //    spark-submit 未显式给名时会把 spark.app.name 默认成主类名，与之相同的值视同未指定。
+    val builder = SparkSession.builder().config("spark.repl.class.outputDir", outDir.getAbsolutePath)
+    val runnerMainClass = getClass.getName.stripSuffix("$")
+    val explicitName = new SparkConf().getOption("spark.app.name").filter(_ != runnerMainClass)
+    val scriptName = if (source != null) extractAppName(source) else None
+    if (explicitName.isEmpty) scriptName.foreach(builder.appName)
+    val spark = builder.getOrCreate()
 
     val replUri = spark.sparkContext.getConf.getOption("spark.repl.class.uri").getOrElse("(未设置)")
     println("REPL class outputDir: " + outDir.getAbsolutePath)
     println("REPL class uri: " + replUri)
+    println("appName: " + spark.sparkContext.appName)
 
     // 用 failed 标记代替在 catch 里 sys.exit，保证 finally 中的临时目录清理能执行。
     var failed = false
 
     try {
-      // 2. 读取脚本。HDFS 读取走 Spark 的 hadoopConfiguration，继承 --conf / Kerberos 等配置。
-      val source = ScriptFileReader.read(scriptPath, spark.sparkContext.hadoopConfiguration)
+      // 3. HDFS 提前读取失败时，用 Spark 的 hadoopConfiguration 重读（继承 --conf / Kerberos）。
+      if (readAfterSession) {
+        source = ScriptFileReader.read(scriptPath, spark.sparkContext.hadoopConfiguration)
+      }
       println("Scala脚本: " + scriptPath)
 
-      // 3. 包装 + 运行时编译到 outDir（直接构造 Global，显式 delambdafy=inline）
+      // 4. 包装 + 运行时编译到 outDir（直接构造 Global，显式 delambdafy=inline）
       val pw = new PrintWriter(srcFile, StandardCharsets.UTF_8.name)
-      try pw.write(wrapScript(source)) finally pw.close()
+      try pw.write(wrapScript(source))
+      finally pw.close()
 
       println("正在编译 Scala 脚本...")
       val classpath = System.getProperty("java.class.path")
@@ -94,14 +119,14 @@ object SparkScalaRunner {
       val run = new g.Run
       run.compile(List(srcFile.getAbsolutePath))
       if (reporter.hasErrors) {
-        printDiagnostics(reporter)
+        printDiagnostics(reporter, source)
         failed = true
       } else {
         println("编译成功。")
         val classes = listClasses(outDir)
         println("编译产物 (" + classes.length + " 个 class): " + classes.mkString(", "))
 
-        // 4. 反射调用 runner.Script.main(scriptArgs)（driver 端从 outDir 加载）
+        // 5. 反射调用 runner.Script.main(scriptArgs)（driver 端从 outDir 加载）
         println("执行脚本...")
         val loader = new URLClassLoader(Array(outDir.toURI.toURL), getClass.getClassLoader)
         val scriptClass = loader.loadClass(ScriptClass)
@@ -120,7 +145,8 @@ object SparkScalaRunner {
         e.printStackTrace()
         failed = true
     } finally {
-      spark.stop()
+      // 脚本可能已自行 spark.stop()，已停止时不再重复调用
+      if (!spark.sparkContext.isStopped) spark.stop()
       // 临时文件清理：executor 已在执行期间从 REPL class server 拉取完类，driver 停止后可安全删除。
       srcFile.delete()
       deleteRecursively(outDir)
@@ -129,12 +155,8 @@ object SparkScalaRunner {
     if (failed) sys.exit(1)
   }
 
-  /**
-   * 将脚本包进 object Script 的 main 方法。
-   * Scala 允许在方法体内写 import，因此脚本顶部的 import 无需特殊处理。
-   * 用拼接而非插值，避免脚本中的 $ 被误解析。
-   * 注意：包装在脚本内容前加了 WrapLineOffset 行，编译错误行号需据此映射回脚本原文。
-   */
+  /** 将脚本包进 object Script 的 main 方法。 Scala 允许在方法体内写 import，因此脚本顶部的 import 无需特殊处理。 用拼接而非插值，避免脚本中的 $ 被误解析。
+    */
   private def wrapScript(source: String): String = {
     "package runner\n" +
       "object Script {\n" +
@@ -144,19 +166,33 @@ object SparkScalaRunner {
       "}\n"
   }
 
-  /** 打印编译诊断，行号映射回脚本原文（包装代码内的错误按原始行号展示）。 */
-  private def printDiagnostics(reporter: StoreReporter): Unit = {
+  /** 打印编译诊断，行号映射回脚本原文并附上出错行的原文内容（包装代码内的错误按原始行号展示）。 */
+  private def printDiagnostics(reporter: StoreReporter, source: String): Unit = {
+    val lines = source.split("\\r?\\n")
     System.err.println("脚本编译失败，错误信息如下（行号已映射回脚本原文）：")
     reporter.infos.foreach { info =>
-      val loc =
-        if (info.pos.isDefined && info.pos.line > WrapLineOffset) "脚本第 " + (info.pos.line - WrapLineOffset) + " 行"
-        else if (info.pos.isDefined) "运行器包装代码第 " + info.pos.line + " 行"
-        else "未知位置"
+      val scriptLine =
+        if (info.pos.isDefined && info.pos.line > WrapLineOffset) Some(info.pos.line - WrapLineOffset)
+        else None
+      val loc = scriptLine match {
+        case Some(n)                    => "脚本第 " + n + " 行"
+        case None if info.pos.isDefined => "运行器包装代码第 " + info.pos.line + " 行"
+        case None                       => "未知位置"
+      }
       System.err.println("[" + loc + "] " + info.severity + ": " + info.msg)
+      scriptLine.foreach { n =>
+        lines.lift(n - 1).foreach { text =>
+          val shown = text.trim
+          if (shown.nonEmpty) System.err.println("    " + n + " | " + shown)
+        }
+      }
     }
   }
 
-  /** 递归删除文件/目录。 */
+  /** 尽力从脚本源码中提取 .appName("...") 的字符串字面量（取第一个匹配，不识别转义字符）。 */
+  private def extractAppName(source: String): Option[String] =
+    """\.appName\(\s*"([^"\\]*)"\s*\)""".r.findFirstMatchIn(source).map(_.group(1))
+
   private def deleteRecursively(f: File): Unit = {
     if (f.isDirectory) Option(f.listFiles).foreach(_.foreach(deleteRecursively))
     f.delete()

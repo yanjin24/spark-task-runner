@@ -9,6 +9,13 @@ target/
 .classpath
 .settings/
 
+# Metals / Bloop (生成物)
+.metals/
+.bloop/
+.bsp/
+
+.scalafmt.conf
+
 # OS
 .DS_Store
 Thumbs.db

@@ -20,9 +20,7 @@ public class SparkSqlRunner {
 
         String sqlFilePath = args[0];
 
-        SparkSession spark = SparkSession.builder()
-                .appName("Spark SQL Runner")
-                .getOrCreate();
+        SparkSession spark = SparkSession.builder().appName("Spark SQL Runner").getOrCreate();
 
         try {
             String content = ScriptFileReader.read(sqlFilePath, spark.sparkContext().hadoopConfiguration());

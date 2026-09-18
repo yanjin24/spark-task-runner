@@ -46,6 +46,21 @@ val result = spark.sql("""SELECT my_udf(col) FROM t""")
 result.coalesce(1).write.mode("overwrite").csv("hdfs://mycluster/out")
 ```
 
+#### 脚本与普通 Scala 文件的差异
+
+与工程里 `object` 包裹的文件相比，脚本有几个差异：
+
+- **定义必须先于使用**。方法体内的 class / def / val 都是局部定义，前向引用一旦跨过中间的 val 定义就是编译错误。从 `object` 包裹的工程文件转成脚本时，把 class 和工具函数挪到脚本开头（import 之后）即可。
+- 脚本里不要写 `package` 声明——它会落入方法体内，直接语法错误。
+- 脚本里的 `SparkSession.builder().getOrCreate()` 只是取回 runner 已创建的同一个会话，不会新建。
+
+#### appName 与配置的生效规则
+
+- **appName 优先级**：`--name`（或 `--conf spark.app.name`）> 脚本中的 `.appName("...")` > spark-submit 默认（主类名）。
+- **appName 的可见范围**：脚本 appName 生效于 `spark.sparkContext.appName` 与 Spark UI / History Server 的应用名，client 模式下也会成为 YARN 应用名；**cluster 模式的 YARN 应用名在提交时刻就已定死**（早于 driver 运行），只受 `--name` 影响——要让它显示特定名字，提交时加 `--name`。
+- **运行时可改**：SQL 配置，如 `spark.sql.adaptive.*`、`spark.sql.shuffle.partitions`——`spark.conf.set(...)` 或 builder 的 `.config(...)` 都生效。
+- **必须在提交时给**：`spark.executor.memory` / `--executor-cores` / `--num-executors`、`spark.serializer` 等 SparkContext 创建期定死的配置——runner 在脚本运行前就已创建会话，脚本内设置无效。
+
 ## Client 模式运行说明（Crown Cluster）
 
 client 模式下 driver 运行在提交节点，使用本地 `$SPARK_HOME/jars/*`（without-hadoop 版，233 个 jar）。该目录缺少 `spark-hive` 与 Hive 2.3 client jar——它们只存在于 HDFS 的 `spark-jars`，而 `spark.yarn.jars` 只把 jar 提供给 YARN 容器（AM/executor），不提供给 client 模式的 driver。因此在 client 模式下 `spark.sql()` 会报 `ClassNotFoundException: org.apache.spark.sql.hive.HiveSessionStateBuilder`。
