@@ -18,7 +18,7 @@ mvn clean package -DskipTests
 
 ### SQL 任务
 
-文件路径支持本地路径和 HDFS 路径。支持 `set` 会话配置、单行注释 `--` 和块注释 `/* */`，例如：
+文件路径支持本地路径和 HDFS 路径。支持 `set` 会话配置；`--` 单行注释与 `/* */` 块注释在拆分时剥离，`/*+ ... */` hint 注释原样保留给 Spark，例如：
 
 ```sql
 -- 会话级配置（仅影响本次运行）
@@ -39,7 +39,7 @@ GROUP BY name
 ORDER BY cnt DESC;
 
 -- 动态分区覆盖写入：只覆盖数据涉及的分区（依赖开头的 set）
-INSERT OVERWRITE TABLE test1.my_table PARTITION (dt)
+INSERT OVERWRITE TABLE mydb.my_table PARTITION (dt)
 SELECT id, name, dt FROM my_view;
 ```
 
@@ -89,7 +89,7 @@ appName：
 - **运行时可改**：SQL 配置，如 `spark.sql.adaptive.*`、`spark.sql.shuffle.partitions`——`spark.conf.set(...)` 或 builder 的 `.config(...)` 都生效。
 - **必须在提交时给**：`spark.executor.memory` / `--executor-cores` / `--num-executors`、`spark.serializer` 等 SparkContext 创建期定死的配置——runner 在脚本运行前就已创建会话，脚本内设置无效。
 
-## Client 模式运行说明（Crown Cluster）
+## Client 模式运行说明
 
 client 模式下 driver 运行在提交节点，使用本地 `$SPARK_HOME/jars/*`（without-hadoop 版，233 个 jar）。该目录缺少 `spark-hive` 与 Hive 2.3 client jar——它们只存在于 HDFS 的 `spark-jars`，而 `spark.yarn.jars` 只把 jar 提供给 YARN 容器（AM/executor），不提供给 client 模式的 driver。因此在 client 模式下 `spark.sql()` 会报 `ClassNotFoundException: org.apache.spark.sql.hive.HiveSessionStateBuilder`。
 
@@ -100,7 +100,7 @@ client 模式下 driver 运行在提交节点，使用本地 `$SPARK_HOME/jars/*
 
 两点说明：
 
-- 写进 `spark-defaults.conf` 是安全的：cluster 模式下 AM 的 jar 来自 HDFS 的 `spark-jars`（`__spark_libs__`），不依赖这个本地目录；AM 即便落到 crown2/3、该目录缺失，JVM 也会静默跳过（通配符展开为空，不报错，已实测）。唯一限制：client 模式须在 crown1 提交——driver 在提交节点运行，需要该目录存在。
+- 写进 `spark-defaults.conf` 是安全的：cluster 模式下 AM 的 jar 来自 HDFS 的 `spark-jars`（`__spark_libs__`），不依赖这个本地目录；AM 即便调度到未部署该目录的节点，JVM 也会静默跳过（通配符展开为空，不报错，已实测）。唯一限制：client 模式须在已部署该目录的节点提交——driver 在提交节点运行，需要该目录存在。
 - 命令行写法要用双引号包住 `*`，防止 shell 展开通配符，交给 JVM 按通配符加载该目录下的 jar。
 
 ## 示例
@@ -109,25 +109,24 @@ client 模式下 driver 运行在提交节点，使用本地 `$SPARK_HOME/jars/*
 
 ```bash
 # 1. SQL · cluster 模式 · HDFS 路径
-spark-4.1.2-bin-without-hadoop/bin/spark-submit \
+$SPARK_HOME/bin/spark-submit \
   --master yarn \
   --deploy-mode cluster \
   --class io.github.yanjin24.sparktaskrunner.SparkSqlRunner \
   /opt/spark-task-runner-1.0.0.jar \
   hdfs://mycluster/myfiles/select.sql
 
-# 2. SQL · client 模式 · 本地文件（--files 分发，参数传裸文件名）
-spark-4.1.2-bin-without-hadoop/bin/spark-submit \
+# 2. SQL · client 模式 · 本地文件（本地/HDFS 路径直接作参数）
+$SPARK_HOME/bin/spark-submit \
   --master yarn \
   --deploy-mode client \
   --driver-class-path "/opt/local-spark-jars/spark-driver-extra/*" \
   --class io.github.yanjin24.sparktaskrunner.SparkSqlRunner \
-  --files /opt/select.sql \
   /opt/spark-task-runner-1.0.0.jar \
-  select.sql
+  /opt/select.sql
 
 # 3. Scala · cluster 模式 · 本地文件（--files 分发，参数传裸文件名）
-spark-4.1.2-bin-without-hadoop/bin/spark-submit \
+$SPARK_HOME/bin/spark-submit \
   --master yarn \
   --deploy-mode cluster \
   --class io.github.yanjin24.sparktaskrunner.SparkScalaRunner \
@@ -136,7 +135,7 @@ spark-4.1.2-bin-without-hadoop/bin/spark-submit \
   spark-scala.scala
 
 # 4. Scala · client 模式 · HDFS 路径
-spark-4.1.2-bin-without-hadoop/bin/spark-submit \
+$SPARK_HOME/bin/spark-submit \
   --master yarn \
   --deploy-mode client \
   --driver-class-path "/opt/local-spark-jars/spark-driver-extra/*" \
@@ -144,6 +143,8 @@ spark-4.1.2-bin-without-hadoop/bin/spark-submit \
   /opt/spark-task-runner-1.0.0.jar \
   hdfs://mycluster/myfiles/spark-scala.scala
 ```
+
+操作 Iceberg 表的提交写法（额外 jar、catalog 配置、模式选择）见 [iceberg.md](iceberg.md)。
 
 ## 文件说明
 

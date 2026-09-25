@@ -56,12 +56,13 @@ public class SparkSqlRunner {
         }
     }
 
-    /** 按分号拆分 SQL 语句，支持单行/块注释、单引号/双引号字符串与反引号标识符（其内可含分号）。 */
+    /** 按分号拆分 SQL 语句，支持单行/块注释、单引号/双引号字符串与反引号标识符（其内可含分号）；hint 注释原样保留。 */
     static List<String> splitStatements(String content) {
         List<String> statements = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         boolean inLineComment = false;
         boolean inBlockComment = false;
+        boolean keepBlockComment = false;
         boolean inSingleQuote = false;
         boolean inDoubleQuote = false;
         boolean inBacktick = false;
@@ -79,8 +80,14 @@ public class SparkSqlRunner {
             }
 
             if (inBlockComment) {
+                if (keepBlockComment) {
+                    current.append(c);
+                }
                 if (c == '*' && next == '/') {
                     inBlockComment = false;
+                    if (keepBlockComment) {
+                        current.append(next);
+                    }
                     i++; // skip '/'
                 }
                 continue;
@@ -92,6 +99,11 @@ public class SparkSqlRunner {
                     continue;
                 }
                 if (c == '/' && next == '*') {
+                    // /*+ 开头的是 hint，原样保留给 Spark 解析
+                    keepBlockComment = i + 2 < content.length() && content.charAt(i + 2) == '+';
+                    if (keepBlockComment) {
+                        current.append(c).append(next);
+                    }
                     inBlockComment = true;
                     i++; // skip '*'
                     continue;
