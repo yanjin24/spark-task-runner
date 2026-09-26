@@ -1,5 +1,6 @@
 package io.github.yanjin24.sparktaskrunner;
 
+import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -12,6 +13,9 @@ public class SparkSqlRunner {
 
     private static final int SHOW_ROWS = 500;
 
+    /** 未显式给名时使用的应用名。 */
+    private static final String DEFAULT_APP_NAME = "Spark SQL Runner";
+
     public static void main(String[] args) {
         if (args.length < 1) {
             System.err.println("用法: spark-submit --class io.github.yanjin24.sparktaskrunner.SparkSqlRunner <jar> <sql文件路径>");
@@ -20,7 +24,15 @@ public class SparkSqlRunner {
 
         String sqlFilePath = args[0];
 
-        SparkSession spark = SparkSession.builder().appName("Spark SQL Runner").getOrCreate();
+        // appName：--name / --conf spark.app.name > 本类固定名。
+        // builder 的 appName 会覆盖提交时的 spark.app.name，故仅在未显式给名时才设置；
+        SparkSession.Builder builder = SparkSession.builder();
+        String submitName = new SparkConf().get("spark.app.name", null);
+        if (submitName == null || submitName.equals(SparkSqlRunner.class.getName())) {
+            builder.appName(DEFAULT_APP_NAME);
+        }
+        SparkSession spark = builder.getOrCreate();
+        System.out.println("appName: " + spark.sparkContext().appName());
 
         try {
             String content = ScriptFileReader.read(sqlFilePath, spark.sparkContext().hadoopConfiguration());

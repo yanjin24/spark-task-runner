@@ -29,7 +29,7 @@ cluster 模式——`spark.driver.userClassPathFirst` 使 metastore jar 在 user
 $SPARK_HOME/bin/spark-submit \
   --master yarn --deploy-mode cluster \
   --conf spark.driver.userClassPathFirst=true \
-  --jars /opt/local-spark-jars/iceberg-hive-4.1/*.jar,/opt/local-spark-jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar \
+  --jars "/opt/local-spark-jars/iceberg-hive-4.1/*.jar,/opt/local-spark-jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar" \
   --conf spark.sql.catalog.spark_catalog=org.apache.iceberg.spark.SparkSessionCatalog \
   --conf spark.sql.catalog.spark_catalog.type=hive \
   --conf spark.sql.catalog.spark_catalog.uri=thrift://<metastore-host>:9083 \
@@ -68,4 +68,4 @@ DELETE FROM iceberg_db.t WHERE id = 1;
 - 只操作 Iceberg 表：两种模式皆可。
 - 混用普通 Hive 表与 Iceberg 表（建表与增删改查）：两种模式均实测通过。只查普通表的 client 提交见 [README](README.md) 的「Client 模式运行说明」。
 
-> 以上结论仅适用于 spark-submit 提交方式。spark-sql CLI 将 `iceberg-hive-4.1/*` 前置于 classpath 查原生格式（TEXTFILE 等）普通表时会报 `NoSuchMethodError`：hive-exec-2.3 的 SessionState 授权初始化经 `Hive.getMSC()` 调 2.3 版签名的 `RetryingMetaStoreClient.getProxy`，而实际加载到的是前置的 4.1 版类，签名不匹配。CLI 会话查普通表须去掉 metastore jar。
+> 以上结论仅适用于 spark-submit 提交方式。spark-sql CLI 将 `iceberg-hive-4.1/*` 前置于 classpath 查原生格式（TEXTFILE 等）普通表时会报 `NoSuchMethodError`：CLI 会话持有 hive-exec-2.3 的 CliSessionState，查普通表时其授权初始化经 `Hive.getMSC()` 调 2.3 版签名的 `RetryingMetaStoreClient.getProxy`，而实际加载到的是前置的 4.1 版类，签名不匹配；spark-submit 的 driver 没有 CLI 式 SessionState，不会走到 `Hive.getMSC()`，故 client 模式用同样的平铺前置 classpath 也不受影响。CLI 会话查普通表须去掉 metastore jar。

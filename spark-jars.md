@@ -1,6 +1,6 @@
 # Spark 补充 jar 清单（21 个 delta jar）
 
-`spark-4.1.2-bin-without-hadoop` 发行版自带 `jars/` 不完整，缺少 `spark-hive` 及其依赖的 Hive 2.3 client jar。需从官方 `spark-4.1.2-bin-hadoop3` 捆绑包的 `jars/` 中筛选出下列 21 个补充 jar。
+`spark-4.1.2-bin-without-hadoop` 发行版不含 Hive 支持相关 jar（`spark-hive`、Hive 2.3 client 及它们的依赖都不在其中）。需从官方 `spark-4.1.2-bin-hadoop3` 捆绑包的 `jars/` 中筛选出下列 21 个补充 jar。
 
 > 注意：不能把 hadoop3 捆绑包的 `jars/` 整个拿来用（作 `spark.yarn.jars` 或 driver classpath），以免与集群自带的 Hadoop 依赖冲突或引入冗余 jar；下列清单中也不含任何 Hadoop jar。
 
