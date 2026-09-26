@@ -23,7 +23,7 @@ $SPARK_HOME/bin/spark-submit \
   /opt/spark-task-runner-1.0.0.jar /opt/select-iceberg.sql
 ```
 
-cluster 模式——`spark.driver.userClassPathFirst` 使 runtime 与 metastore jar 在 user classloader 中优先于容器自带的 spark-jars 加载，两者必须同时经 `--jars` 提供（缺 metastore jar 则混用 spark-jars 的 2.3 client，报 `NoSuchMethodException: HiveMetaStoreClient.<init>(HiveConf, HiveMetaHookLoader, Boolean)`）：
+cluster 模式——`spark.driver.userClassPathFirst` 使 metastore jar 在 user classloader 中优先于容器自带的 spark-jars 中 2.x 版 metastore jar 加载：
 
 ```bash
 $SPARK_HOME/bin/spark-submit \

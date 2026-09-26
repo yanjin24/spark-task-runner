@@ -32,6 +32,8 @@ public class SparkSqlRunner {
             for (int i = 0; i < statements.size(); i++) {
                 String sql = statements.get(i);
                 System.out.println("--- 执行第 " + (i + 1) + " 条语句 ---");
+                // 让 Spark UI SQL 页的 Description 显示语句原文，与 spark-sql CLI 一致
+                spark.sparkContext().setCallSite(sql);
                 if (isQuery(sql)) {
                     Dataset<Row> result = spark.sql(sql);
                     System.out.println("查询结果：");
@@ -39,6 +41,7 @@ public class SparkSqlRunner {
                 } else {
                     spark.sql(sql);
                 }
+                spark.sparkContext().clearCallSite();
                 System.out.println("第 " + (i + 1) + " 条语句执行完成\n");
             }
 
