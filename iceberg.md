@@ -6,7 +6,7 @@
 
 jar 构成：`iceberg-spark-runtime-4.1_2.13-1.11.0.jar`（Iceberg 的 Spark 支持，不含 Hive client 类，下文简称 runtime jar）与 Hive 4.1 的 3 个 metastore client jar——hive-metastore / hive-standalone-metastore-common / hive-storage-api（本地目录内为符号链接，下文简称 metastore jar）。两处存放，按用途取用：
 
-- 提交节点本地 `/opt/local-spark-jars/`（目录用途见 [spark-jars.md](spark-jars.md)）：client 模式 `--driver-class-path` 使用；
+- 提交节点本地 `/opt/local-spark-jars/`（目录用途见 [extra-jars.md](extra-jars.md)）：client 模式 `--driver-class-path` 使用；
 - HDFS `/spark/iceberg-jars/`：4 个 jar 的一次性上传位置，由 spark-defaults.conf 的 `spark.jars` 提供给该节点所有 spark 启动。
 
 本文示例命令均以 spark-defaults.conf 已配置如下 `spark.jars` 为前提，不再出现 `--jars`：

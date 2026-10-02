@@ -71,7 +71,10 @@ object SparkScalaRunner {
     }
 
     val outDir = Files.createTempDirectory("spark-script-out-").toFile
-    val srcFile = Files.createTempFile("spark-script-", ".scala").toFile
+    // 源文件沿用脚本原名（放独立临时目录）：Spark UI 的 callSite（如 "count at 文件:行"）
+    // 显示的是编译产物记录的源文件名，随机临时名无法与脚本对照
+    val srcDir = Files.createTempDirectory("spark-script-src-").toFile
+    val srcFile = new File(srcDir, scriptPath.split("""[\\/]""").last)
 
     // 2. 创建 SparkSession，开启 REPL class server 指向 outDir。
     //    SparkContext 检测到 spark.repl.class.outputDir 后会启动 class server 并设置
@@ -148,7 +151,7 @@ object SparkScalaRunner {
       // 脚本可能已自行 spark.stop()，已停止时不再重复调用
       if (!spark.sparkContext.isStopped) spark.stop()
       // 临时文件清理：executor 已在执行期间从 REPL class server 拉取完类，driver 停止后可安全删除。
-      srcFile.delete()
+      deleteRecursively(srcDir)
       deleteRecursively(outDir)
     }
 

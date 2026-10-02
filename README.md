@@ -92,16 +92,16 @@ appName：
 
 ## Client 模式运行说明
 
-client 模式下 driver 运行在提交节点，使用本地 `$SPARK_HOME/jars/*`（without-hadoop 版，目录和 jar 共 233 个）。该目录缺少 `spark-hive` 与 Hive 2.3 client jar——它们只存在于 HDFS 的 `spark-jars`，而 `spark.yarn.jars` 只把 jar 提供给 YARN 容器（AM/executor），不提供给 client 模式的 driver。因此在 client 模式下 `spark.sql()` 会报 `ClassNotFoundException: org.apache.spark.sql.hive.HiveSessionStateBuilder`。
+client 模式下 driver 运行在提交节点，使用本地 `$SPARK_HOME/jars/*`（without-hadoop 版，目录和 jar 共 233 个）。该目录缺少 `spark-hive` 与 Hive 2.3 client jar——它们只存在于 HDFS 的 `spark-yarn-jars`，而 `spark.yarn.jars` 只把 jar 提供给 YARN 容器（AM/executor），不提供给 client 模式的 driver。因此在 client 模式下 `spark.sql()` 会报 `ClassNotFoundException: org.apache.spark.sql.hive.HiveSessionStateBuilder`。
 
-解决方法：给 driver 补上这 21 个 delta jar（完整清单与两个用途见 [spark-jars.md](spark-jars.md)），两种写法等价：
+解决方法：给 driver 补上这 21 个 delta jar（完整清单与两个用途见 [extra-jars.md](extra-jars.md)），两种写法等价：
 
 - 每次提交时加 `--driver-class-path "/opt/local-spark-jars/spark-driver-extra/*"`；
 - 写进 `spark-defaults.conf` 一劳永逸：`spark.driver.extraClassPath /opt/local-spark-jars/spark-driver-extra/*`。
 
 两点说明：
 
-- 写进 `spark-defaults.conf` 是安全的：cluster 模式下 AM 的 jar 来自 HDFS 的 `spark-jars`（`__spark_libs__`），不依赖这个本地目录；AM 即便调度到未部署该目录的节点，JVM 也会静默跳过（通配符展开为空，不报错，已实测）。唯一限制：client 模式须在已部署该目录的节点提交——driver 在提交节点运行，需要该目录存在。
+- 写进 `spark-defaults.conf` 是安全的：cluster 模式下 AM 的 jar 来自 HDFS 的 `spark-yarn-jars`（`__spark_libs__`），不依赖这个本地目录；AM 即便调度到未部署该目录的节点，JVM 也会静默跳过（通配符展开为空，不报错，已实测）。唯一限制：client 模式须在已部署该目录的节点提交——driver 在提交节点运行，需要该目录存在。
 - 命令行写法要用双引号包住 `*`，防止 shell 展开通配符，交给 JVM 按通配符加载该目录下的 jar。
 
 ## 示例
