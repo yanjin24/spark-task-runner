@@ -44,8 +44,10 @@ public class SparkSqlRunner {
             for (int i = 0; i < statements.size(); i++) {
                 String sql = statements.get(i);
                 System.out.println("--- 执行第 " + (i + 1) + " 条语句 ---");
-                // 让 Spark UI SQL 页的 Description 显示语句原文，与 spark-sql CLI 一致
-                spark.sparkContext().setCallSite(sql);
+                // 与 spark-sql CLI（SparkSQLDriver）一致：把语句原文设为 job description，
+                // SQL 页 Description 与 Jobs/Stages 页的黑色折叠文案均取自它；不设 callSite，
+                // 各页蓝色链接保持为短的调用点
+                spark.sparkContext().setJobDescription(sql);
                 if (isQuery(sql)) {
                     Dataset<Row> result = spark.sql(sql);
                     System.out.println("查询结果：");
@@ -53,7 +55,7 @@ public class SparkSqlRunner {
                 } else {
                     spark.sql(sql);
                 }
-                spark.sparkContext().clearCallSite();
+                spark.sparkContext().setJobDescription(null);
                 System.out.println("第 " + (i + 1) + " 条语句执行完成\n");
             }
 
