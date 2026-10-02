@@ -111,16 +111,14 @@ client 模式下 driver 运行在提交节点，使用本地 `$SPARK_HOME/jars/*
 ```bash
 # 1. SQL · cluster 模式 · HDFS 路径
 $SPARK_HOME/bin/spark-submit \
-  --master yarn \
-  --deploy-mode cluster \
+  --master yarn --deploy-mode cluster \
   --class io.github.yanjin24.sparktaskrunner.SparkSqlRunner \
   /opt/spark-task-runner-1.0.0.jar \
   hdfs://mycluster/myfiles/select.sql
 
 # 2. SQL · client 模式 · 本地文件（本地/HDFS 路径直接作参数）
 $SPARK_HOME/bin/spark-submit \
-  --master yarn \
-  --deploy-mode client \
+  --master yarn --deploy-mode client \
   --driver-class-path "/opt/local-spark-jars/spark-driver-extra/*" \
   --class io.github.yanjin24.sparktaskrunner.SparkSqlRunner \
   /opt/spark-task-runner-1.0.0.jar \
@@ -128,8 +126,7 @@ $SPARK_HOME/bin/spark-submit \
 
 # 3. Scala · cluster 模式 · 本地文件（--files 分发，参数传裸文件名）
 $SPARK_HOME/bin/spark-submit \
-  --master yarn \
-  --deploy-mode cluster \
+  --master yarn --deploy-mode cluster \
   --class io.github.yanjin24.sparktaskrunner.SparkScalaRunner \
   --files /opt/spark-scala.scala \
   /opt/spark-task-runner-1.0.0.jar \
@@ -137,8 +134,7 @@ $SPARK_HOME/bin/spark-submit \
 
 # 4. Scala · client 模式 · HDFS 路径
 $SPARK_HOME/bin/spark-submit \
-  --master yarn \
-  --deploy-mode client \
+  --master yarn --deploy-mode client \
   --driver-class-path "/opt/local-spark-jars/spark-driver-extra/*" \
   --class io.github.yanjin24.sparktaskrunner.SparkScalaRunner \
   /opt/spark-task-runner-1.0.0.jar \

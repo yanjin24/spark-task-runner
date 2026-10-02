@@ -46,8 +46,7 @@ final class ScriptFileReader {
     static String decodeBytes(byte[] bytes) {
         String text;
         try {
-            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
+            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT);
             text = decoder.decode(ByteBuffer.wrap(bytes)).toString();
         } catch (CharacterCodingException e) {

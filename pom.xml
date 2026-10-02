@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.github.yanjin24</groupId>
@@ -19,10 +18,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spark.version>4.1.2</spark.version>
         <scala.version>2.13</scala.version>
-        <!-- Scala 完整版本：用于编译 Scala 源码与 scala-compiler 依赖。
-             运行时由集群 Spark 自带的 scala-library/scala-compiler 提供，需与 Spark 的 Scala 版本一致
-             （运行 spark-submit 带 version 选项可查看集群的 Using Scala version）。 -->
-        <scala.fullversion>2.13.16</scala.fullversion>
+        <scala.fullversion>2.13.17</scala.fullversion>
     </properties>
 
     <dependencies>
@@ -47,7 +43,7 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- 运行时编译 Scala 脚本所需；scope=provided，依赖集群 spark-jars 中与 Spark 自带 scala-library 版本一致的 scala-compiler -->
+        <!-- 运行时编译 Scala 脚本所需；依赖集群中与 Spark 自带 scala-library 版本一致的 scala-compiler -->
         <dependency>
             <groupId>org.scala-lang</groupId>
             <artifactId>scala-compiler</artifactId>
