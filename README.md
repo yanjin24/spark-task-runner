@@ -2,17 +2,8 @@
 
 通用 Spark 任务执行器，支持 SQL 和 Scala 两种任务，通过 `--class` 选择入口：
 
-- `io.github.yanjin24.sparktaskrunner.SparkSqlRunner`：执行 SQL 文件，按分号拆分语句依次执行；SELECT/WITH 查询语句会打印查询结果。
-- `io.github.yanjin24.sparktaskrunner.SparkScalaRunner`：运行时编译执行 Scala 脚本，支持 UDF、自定义 HDFS 写入等 SQL 无法完成的逻辑。
-
-## 编译
-
-```bash
-cd spark-task-runner
-mvn clean package -DskipTests
-```
-
-打包后在 `target/spark-task-runner-1.0.0.jar`。
+- `io.github.yanjin24.sparktaskrunner.SparkSqlRunner`：执行 SQL 脚本文件，按分号拆分语句依次执行；SELECT/WITH 查询语句会打印查询结果。
+- `io.github.yanjin24.sparktaskrunner.SparkScalaRunner`：运行时编译执行 Scala 脚本文件。
 
 ## 使用
 
@@ -70,12 +61,14 @@ spark.sql("SELECT name, subject, label(score) AS grade FROM scores").show()
 df.coalesce(1).write.mode("overwrite").csv("hdfs://mycluster/out")
 ```
 
-#### 脚本与普通 Scala 文件的差异
+#### 脚本与普通 Scala 文件、spark-shell 的差异
 
 与工程里 `object` 包裹的文件相比，脚本有几个差异：
 
 - **定义必须先于使用**。方法体内的 class / def / val 都是局部定义，前向引用一旦跨过中间的 val 定义就是编译错误。从 `object` 包裹的工程文件转成脚本时，把 class 和工具函数挪到脚本开头（import 之后）即可。
 - 脚本里不要写 `package` 声明——它会落入方法体内，直接语法错误。
+
+与 spark-shell 相比写法基本一致，但脚本不会像 spark-shell 那样默认创建 `spark`、`sc`——需自行 `SparkSession.builder().getOrCreate()` 获取；`spark.implicits._` 也不会自动导入，`$"col"`、`Seq(...).toDF` 等写法需自己 `import spark.implicits._`。
 
 ## appName 与配置的生效规则
 
@@ -142,10 +135,3 @@ $SPARK_HOME/bin/spark-submit \
 ```
 
 操作 Iceberg 表的提交写法（额外 jar、catalog 配置、模式选择）见 [iceberg.md](iceberg.md)。
-
-## 文件说明
-
-- `src/main/java/io/github/yanjin24/sparktaskrunner/SparkSqlRunner.java`：SQL 任务主程序
-- `src/main/java/io/github/yanjin24/sparktaskrunner/ScriptFileReader.java`：脚本/SQL 文件读取工具（本地与 HDFS 路径，UTF-8/GBK 编码识别、BOM 处理）
-- `src/main/scala/io/github/yanjin24/sparktaskrunner/SparkScalaRunner.scala`：Scala 任务主程序（运行时编译）
-- `pom.xml`：Maven 配置

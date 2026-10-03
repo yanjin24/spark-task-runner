@@ -13,20 +13,20 @@ import scala.tools.nsc.reporters.StoreReporter
 
 /** Scala 脚本运行器（动态文件 + 运行时编译方案）。
   *
-  * 读取 .scala 脚本（本地路径或 HDFS URI），在 driver 端用 scala-compiler 运行时编译为 class， 通过 Spark 的 REPL class server（spark.repl.class.outputDir）把类分发给
+  * 读取 .scala 脚本（本地路径或 HDFS URI），在 driver 端用 scala-compiler 运行时编译为 class，通过 Spark 的 REPL class server（spark.repl.class.outputDir）把类分发给
   * executor，再反射调用脚本主入口执行。
   *
-  * 为何用 REPL class server 而非 sc.addJar： spark.udf.register 注册的 UDF 会被 Spark 包成 ScalaUDF.f（一个行解码 Function1）， 该包装是 invokedynamic lambda，序列化为
+  * 为何用 REPL class server 而非 sc.addJar：spark.udf.register 注册的 UDF 会被 Spark 包成 ScalaUDF.f（一个行解码 Function1）， 该包装是 invokedynamic lambda，序列化为
   * SerializedLambda 后在 executor 反序列化时 需要能加载到 capturing class。sc.addJar 的 jar 在 executor 子 classloader、反序列化路径取不到， 导致 ClassCastException:
   * SerializedLambda -> Function1。 REPL class server（spark-shell 用的同一套机制）让 executor 经 spark.repl.class.uri 拉取运行时类， 从而正确反序列化。这也是 spark-shell 里能直接用 UDF
   * 的原因。
   */
 object SparkScalaRunner {
 
-  /** 脚本被包装后的全限定类名（package runner，object Script）。 */
+  // 脚本被包装后的全限定类名（package runner，object Script）。
   private val ScriptClass = "runner.Script"
 
-  /** 包装代码在脚本内容前加入的行数，用于把编译错误行号映射回脚本原文行号。 */
+  // 包装代码在脚本内容前加入的行数，用于把编译错误行号映射回脚本原文行号。
   private val WrapLineOffset = 3
 
   def main(args: Array[String]): Unit = {
@@ -158,8 +158,7 @@ object SparkScalaRunner {
     if (failed) sys.exit(1)
   }
 
-  /** 将脚本包进 object Script 的 main 方法。 Scala 允许在方法体内写 import，因此脚本顶部的 import 无需特殊处理。 用拼接而非插值，避免脚本中的 $ 被误解析。
-    */
+  // 将脚本包进 object Script 的 main 方法。 Scala 允许在方法体内写 import，因此脚本顶部的 import 无需特殊处理。 用拼接而非插值，避免脚本中的 $ 被误解析。
   private def wrapScript(source: String): String = {
     "package runner\n" +
       "object Script {\n" +
@@ -169,7 +168,7 @@ object SparkScalaRunner {
       "}\n"
   }
 
-  /** 打印编译诊断，行号映射回脚本原文并附上出错行的原文内容（包装代码内的错误按原始行号展示）。 */
+  // 打印编译诊断，行号映射回脚本原文并附上出错行的原文内容（包装代码内的错误按原始行号展示）。
   private def printDiagnostics(reporter: StoreReporter, source: String): Unit = {
     val lines = source.split("\\r?\\n")
     System.err.println("脚本编译失败，错误信息如下（行号已映射回脚本原文）：")
@@ -192,7 +191,7 @@ object SparkScalaRunner {
     }
   }
 
-  /** 尽力从脚本源码中提取 .appName("...") 的字符串字面量（取第一个匹配，不识别转义字符）。 */
+  // 尽力从脚本源码中提取 .appName("...") 的字符串字面量（取第一个匹配，不识别转义字符）。
   private def extractAppName(source: String): Option[String] =
     """\.appName\(\s*"([^"\\]*)"\s*\)""".r.findFirstMatchIn(source).map(_.group(1))
 
@@ -201,7 +200,7 @@ object SparkScalaRunner {
     f.delete()
   }
 
-  /** 列出目录下所有 .class 文件的相对路径（调试用）。 */
+  // 列出目录下所有 .class 文件的相对路径（调试用）。
   private def listClasses(dir: File): Array[String] = {
     val root = dir.getAbsolutePath
     val buf = scala.collection.mutable.ArrayBuffer.empty[String]

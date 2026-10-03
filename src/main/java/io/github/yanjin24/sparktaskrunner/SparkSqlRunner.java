@@ -13,7 +13,7 @@ public class SparkSqlRunner {
 
     private static final int SHOW_ROWS = 500;
 
-    /** 未显式给名时使用的应用名。 */
+    // 未显式给名时使用的应用名。
     private static final String DEFAULT_APP_NAME = "Spark SQL Runner";
 
     public static void main(String[] args) {
@@ -45,8 +45,7 @@ public class SparkSqlRunner {
                 String sql = statements.get(i);
                 System.out.println("--- 执行第 " + (i + 1) + " 条语句 ---");
                 // 与 spark-sql CLI（SparkSQLDriver）一致：把语句原文设为 job description，
-                // SQL 页 Description 与 Jobs/Stages 页的黑色折叠文案均取自它；不设 callSite，
-                // 各页蓝色链接保持为短的调用点
+                // SQL 页 Description 与 Jobs/Stages 页的黑色折叠文案均取自它；不设 callSite，各页蓝色链接保持为短的调用点
                 spark.sparkContext().setJobDescription(sql);
                 if (isQuery(sql)) {
                     Dataset<Row> result = spark.sql(sql);
@@ -73,7 +72,7 @@ public class SparkSqlRunner {
         }
     }
 
-    /** 按分号拆分 SQL 语句，支持单行/块注释、单引号/双引号字符串与反引号标识符（其内可含分号）；hint 注释原样保留。 */
+    // 按分号拆分 SQL 语句，支持单行/块注释、单引号/双引号字符串与反引号标识符（其内可含分号）；hint 注释原样保留。
     static List<String> splitStatements(String content) {
         List<String> statements = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -116,7 +115,7 @@ public class SparkSqlRunner {
                     continue;
                 }
                 if (c == '/' && next == '*') {
-                    // /*+ 开头的是 hint，原样保留给 Spark 解析
+                    // 以 /*+ ... */ 样式开头的 hint 注释原样保留给 Spark 解析
                     keepBlockComment = i + 2 < content.length() && content.charAt(i + 2) == '+';
                     if (keepBlockComment) {
                         current.append(c).append(next);
@@ -155,7 +154,7 @@ public class SparkSqlRunner {
         }
     }
 
-    /** 是否为查询语句（SELECT / WITH 开头）。 */
+    // 是否为查询语句（SELECT / WITH 开头）。
     private static boolean isQuery(String sql) {
         String upper = sql.trim().toUpperCase();
         return startsWithKeyword(upper, "SELECT") || startsWithKeyword(upper, "WITH");
